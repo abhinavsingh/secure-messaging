@@ -87,7 +87,7 @@ class Client(object):
 			self.client.write('%s%s' % (message, constants.CRLF))
 
 	def send(self, uid, message):
-		with open('priv/keys/clients/%s.pub' % uid, 'rb') as topubfile, open('priv/keys/clients/%s.pub' % self.uid, 'rb') as frompubfile:
+		with open(constants.CLIENT_PUB_PATH % uid, 'rb') as topubfile, open(constants.CLIENT_PUB_PATH % self.uid, 'rb') as frompubfile:
 			topubkey = topubfile.read()
 			frompubkey = frompubfile.read()
 			enc = self.encrypt_message(message, topubkey)
