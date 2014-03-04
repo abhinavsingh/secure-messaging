@@ -15,6 +15,8 @@ class Client(object):
 	'''ssl client implementation.'''
 
 	def __init__(self, uid, port=10001):
+		# uid currently used to locally manage pub/priv keys
+		# it is never transferred over the wire
 		self.uid = uid
 		self.port = port
 		
@@ -54,18 +56,10 @@ class Client(object):
 				if len(messages) > 1:
 					opcode = int(messages[0])
 				
-				if opcode == constants.OP_MESSAGE and len(messages) >= 6:
-					topubkey = messages[1]
-					assert topubkey == self.pubkey
-					frompubkey = messages[2]
-					enc = (messages[3],)
-					sig = (long(messages[4]),)
-					
-					message = self.decrypt_message(enc)
-					if self.verify_signature(frompubkey, sig, message):
-						logger.info('rcvd %s from %s' % (message, frompubkey))
-					
-					messages = messages[6:]
+				if opcode == constants.OP_MESSAGE and len(messages) >= 5:
+					message = messages[1:4]
+					self.handle_op_message(*message)
+					messages = messages[5:]
 				
 				self.buffer = constants.CRLF.join(messages)
 				data = self.client.read()
@@ -87,12 +81,19 @@ class Client(object):
 			self.client.write('%s%s' % (message, constants.CRLF))
 
 	def send(self, uid, message):
-		with open(constants.CLIENT_PUB_PATH % uid, 'rb') as topubfile, open(constants.CLIENT_PUB_PATH % self.uid, 'rb') as frompubfile:
-			topubkey = topubfile.read()
-			frompubkey = frompubfile.read()
-			enc = self.encrypt_message(message, topubkey)
+		with open(constants.CLIENT_PUB_PATH % uid, 'rb') as topubfile:
+			pubkey = topubfile.read()
+			enc = self.encrypt_message(message, pubkey)
 			sig = self.generate_signature(message)
-			self.write(constants.OP_MESSAGE, topubkey, frompubkey, enc[0], sig[0])
+			self.write(constants.OP_MESSAGE, pubkey, enc[0], sig[0])
+
+	def handle_op_message(self, pubkey, enc, sig):
+		enc = (enc,)
+		sig = (long(sig),)
+		
+		message = self.decrypt_message(enc)
+		if self.verify_signature(pubkey, sig, message):
+			logger.info('rcvd %s from %s' % (message, pubkey))
 
 	@staticmethod
 	def generate_keys():

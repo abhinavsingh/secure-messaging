@@ -21,8 +21,12 @@ class Handler(threading.Thread):
         super(Handler, self).__init__()
         self.conn = conn
         self.addr = addr
+        
         self.client = ssl.wrap_socket(self.conn, server_side=True, certfile=constants.SERVER_CRT_PATH, keyfile=constants.SERVER_KEY_PATH)
+        
         self.buffer = ''
+        self.pubkey = None
+        self.md5 = None
     
     def run(self):
         try:
@@ -42,10 +46,10 @@ class Handler(threading.Thread):
                 if opcode == constants.OP_PUBKEY and len(messages) >= 3:
                     self.handle_op_pubkey(messages[1])
                     messages = messages[3:]
-                elif opcode == constants.OP_MESSAGE and len(messages) >= 6:
-                    message = messages[1:5]
+                elif opcode == constants.OP_MESSAGE and len(messages) >= 5:
+                    message = messages[1:4]
                     self.handle_op_message(*message)
-                    messages = messages[6:]
+                    messages = messages[5:]
                 
                 self.buffer = constants.CRLF.join(messages)
                 data = self.client.read()
@@ -64,18 +68,19 @@ class Handler(threading.Thread):
                 pass
     
     def handle_op_pubkey(self, pubkey):
-        md5 = MD5.new(pubkey).hexdigest()
-        clients[md5] = self.client
+        self.pubkey = pubkey
+        self.md5 = MD5.new(pubkey).hexdigest()
+        clients[self.md5] = self.client
         
-        if md5 in buffers:
-            messages = buffers[md5]
-            del buffers[md5]
+        if self.md5 in buffers:
+            messages = buffers[self.md5]
+            del buffers[self.md5]
             for message in messages:
                 self.write(self.client, *message)
     
-    def handle_op_message(self, topubkey, frompubkey, enc, sig):
-        message = (constants.OP_MESSAGE, topubkey, frompubkey, enc, sig,)
-        md5 = MD5.new(topubkey).hexdigest()
+    def handle_op_message(self, pubkey, enc, sig):
+        message = (constants.OP_MESSAGE, self.pubkey, enc, sig,)
+        md5 = MD5.new(pubkey).hexdigest()
         
         if md5 in clients:
             client = clients[md5]
