@@ -3,11 +3,10 @@ import sys
 import ssl
 import socket
 import logging
-import server
-
 from Crypto import Random
 from Crypto.PublicKey import RSA
 from Crypto.Hash import MD5
+import constants
 
 logging.basicConfig(level=logging.DEBUG)
 logger = logging.getLogger(__name__)
@@ -20,26 +19,26 @@ class Client(object):
 		self.port = port
 		
 		self.sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-		self.client = ssl.wrap_socket(self.sock, ca_certs=server.SERVER_CRT_PATH, cert_reqs=ssl.CERT_REQUIRED)
+		self.client = ssl.wrap_socket(self.sock, ca_certs=constants.SERVER_CRT_PATH, cert_reqs=ssl.CERT_REQUIRED)
 		self.client.connect(('127.0.0.1', self.port))
 		
 		self.pubkey, self.privkey = None, None
 		self.init_keys()
 		
 		self.buffer = ''
-		self.write(server.OP_PUBKEY, self.pubkey)
+		self.write(constants.OP_PUBKEY, self.pubkey)
 		
 		#self.send(1, 'hello world')
 
 	def init_keys(self):
-		if os.path.isfile('priv/keys/clients/%s.pub' % self.uid) and os.path.isfile('priv/keys/clients/%s.priv' % self.uid):
-			with open('priv/keys/clients/%s.pub' % self.uid, 'rb') as pubfile, open('priv/keys/clients/%s.priv' % self.uid, 'rb') as privfile:
+		if os.path.isfile(constants.CLIENT_PUB_PATH % self.uid) and os.path.isfile(constants.CLIENT_PRIV_PATH % self.uid):
+			with open(constants.CLIENT_PUB_PATH % self.uid, 'rb') as pubfile, open(constants.CLIENT_PRIV_PATH % self.uid, 'rb') as privfile:
 				self.pubkey = pubfile.read()
 				self.privkey = privfile.read()
 				logger.debug('read existing pub/priv key for uid %s' % self.uid)
 		else:
 			self.pubkey, self.privkey = self.generate_keys()
-			with open('priv/keys/clients/%s.pub' % self.uid, 'wb') as pubfile, open('priv/keys/clients/%s.priv' % self.uid, 'wb') as privfile:
+			with open(constants.CLIENT_PUB_PATH % self.uid, 'wb') as pubfile, open(constants.CLIENT_PRIV_PATH % self.uid, 'wb') as privfile:
 				pubfile.write(self.pubkey)
 				privfile.write(self.privkey)
 				logger.debug('written pub/priv key for uid %s' % self.uid)
@@ -49,13 +48,13 @@ class Client(object):
 			data = self.client.read()
 			while data:
 				self.buffer += data
-				messages = self.buffer.split(server.CRLF)
+				messages = self.buffer.split(constants.CRLF)
 				
 				opcode = None
 				if len(messages) > 1:
 					opcode = int(messages[0])
 				
-				if opcode == server.OP_MESSAGE and len(messages) >= 6:
+				if opcode == constants.OP_MESSAGE and len(messages) >= 6:
 					topubkey = messages[1]
 					assert topubkey == self.pubkey
 					frompubkey = messages[2]
@@ -68,7 +67,7 @@ class Client(object):
 					
 					messages = messages[6:]
 				
-				self.buffer = server.CRLF.join(messages)
+				self.buffer = constants.CRLF.join(messages)
 				data = self.client.read()
 		
 		except KeyboardInterrupt:
@@ -85,7 +84,7 @@ class Client(object):
 
 	def write(self, *messages):
 		for message in messages:
-			self.client.write('%s%s' % (message, server.CRLF))
+			self.client.write('%s%s' % (message, constants.CRLF))
 
 	def send(self, uid, message):
 		with open('priv/keys/clients/%s.pub' % uid, 'rb') as topubfile, open('priv/keys/clients/%s.pub' % self.uid, 'rb') as frompubfile:
@@ -93,7 +92,7 @@ class Client(object):
 			frompubkey = frompubfile.read()
 			enc = self.encrypt_message(message, topubkey)
 			sig = self.generate_signature(message)
-			self.write(server.OP_MESSAGE, topubkey, frompubkey, enc[0], sig[0])
+			self.write(constants.OP_MESSAGE, topubkey, frompubkey, enc[0], sig[0])
 
 	@staticmethod
 	def generate_keys():

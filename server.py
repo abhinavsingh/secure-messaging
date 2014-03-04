@@ -2,18 +2,11 @@ import ssl
 import socket
 import logging
 import threading
-
 from Crypto.Hash import MD5
+import constants
 
 logging.basicConfig(level=logging.DEBUG)
 logger = logging.getLogger(__name__)
-
-SERVER_CRT_PATH = 'priv/keys/server/server.crt'
-SERVER_KEY_PATH = 'priv/keys/server/server.key'
-
-CRLF = '\r\n'
-OP_PUBKEY = 1
-OP_MESSAGE = 2
 
 # pubkey md5 to conn mapping
 clients = dict()
@@ -28,7 +21,7 @@ class Handler(threading.Thread):
         super(Handler, self).__init__()
         self.conn = conn
         self.addr = addr
-        self.client = ssl.wrap_socket(self.conn, server_side=True, certfile=SERVER_CRT_PATH, keyfile=SERVER_KEY_PATH)
+        self.client = ssl.wrap_socket(self.conn, server_side=True, certfile=constants.SERVER_CRT_PATH, keyfile=constants.SERVER_KEY_PATH)
         self.buffer = ''
     
     def run(self):
@@ -38,7 +31,7 @@ class Handler(threading.Thread):
             while data:
                 #logger.info('rcvd %s from client %s' % (data, self.addr))
                 self.buffer += data
-                messages = self.buffer.split(CRLF)
+                messages = self.buffer.split(constants.CRLF)
                 
                 # extract op
                 opcode = None
@@ -46,15 +39,15 @@ class Handler(threading.Thread):
                     opcode = int(messages[0])
                 
                 # check if we have sufficient data for current op
-                if opcode == OP_PUBKEY and len(messages) >= 3:
+                if opcode == constants.OP_PUBKEY and len(messages) >= 3:
                     self.handle_op_pubkey(messages[1])
                     messages = messages[3:]
-                elif opcode == OP_MESSAGE and len(messages) >= 6:
+                elif opcode == constants.OP_MESSAGE and len(messages) >= 6:
                     message = messages[1:5]
                     self.handle_op_message(*message)
                     messages = messages[6:]
                 
-                self.buffer = CRLF.join(messages)
+                self.buffer = constants.CRLF.join(messages)
                 data = self.client.read()
         
         except KeyboardInterrupt:
@@ -81,7 +74,7 @@ class Handler(threading.Thread):
                 self.write(self.client, *message)
     
     def handle_op_message(self, topubkey, frompubkey, enc, sig):
-        message = (OP_MESSAGE, topubkey, frompubkey, enc, sig,)
+        message = (constants.OP_MESSAGE, topubkey, frompubkey, enc, sig,)
         md5 = MD5.new(topubkey).hexdigest()
         
         if md5 in clients:
@@ -95,7 +88,7 @@ class Handler(threading.Thread):
     @staticmethod
     def write(client, *messages):
         for message in messages:
-            client.write('%s%s' % (message, CRLF))
+            client.write('%s%s' % (message, constants.CRLF))
 
 class Server(object):
     '''ssl server implementation.'''
