@@ -1,0 +1,5 @@
+.project
+.pydevproject
+*.pyc
+priv/keys/clients/
+priv/keys/server/server.*
