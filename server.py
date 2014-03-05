@@ -1,5 +1,6 @@
 import signal
 import logging
+
 from tornado.ioloop import IOLoop
 from tornado.tcpserver import TCPServer
 from Crypto.Hash import MD5
@@ -9,10 +10,7 @@ import constants
 logging.basicConfig(level=logging.DEBUG)
 logger = logging.getLogger(__name__)
 
-# pubkey md5 to conn mapping
 clients = dict()
-
-# buffered messages for offline pubkey
 buffers = dict()
 
 def handle_signal(sig, frame):
@@ -91,8 +89,11 @@ class Handler(object):
 class Server(TCPServer):
     '''ssl server implementation.'''
 
-    def __init__(self):
+    def __init__(self, port=10001):
+        self.port = port
         super(Server, self).__init__(ssl_options={'certfile':constants.SERVER_CRT_PATH, 'keyfile':constants.SERVER_KEY_PATH})
+        logger.info('listening on port %s' % self.port)
+        self.listen(self.port)
 
     def handle_stream(self, conn, addr):
         handler = Handler(conn, addr)
@@ -102,6 +103,5 @@ if __name__ == '__main__':
     signal.signal(signal.SIGINT, handle_signal)
     signal.signal(signal.SIGTERM, handle_signal)
     s = Server()
-    s.listen(10001)
     IOLoop.instance().start()
     IOLoop.instance().close()
