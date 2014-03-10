@@ -7,19 +7,24 @@ Goals:
 ------
 
 - End-to-End encryption (read as, server cannot see who is sending what to whom)
-- Origin trust using digital signatures
+- Message origin verification using digital signatures
 - CLI client (ssl)
 - Web (https + wss) client
 
 How it works:
 -------------
 
-- Clients generate public/private key and transmit their public key to server upon connection
-- Data packets is addressed from one public key to another public key
-- Data packet consists of sender public key, digital signature and encrypted message
+- Clients generate public/private key and send their public key to server upon connection
+- Message is addressed from one public key to another public key
+- Over the wire packet consists of sender public key, digital signature and encrypted message
+- Only destination client can decrypt message and verify digital signature
 
-PS:
----
+TODO:
+-----
 
-- How public keys are exchanged among users is currently out of scope
-- In future in system discovery methods might get added
+- Methods for public key discovery of social friends and like minded people
+- How to send message to all the devices of same user running with different public/private key?
+- Acknowledgement and offline message persistence
+- Investigate on self expiring messages?
+- Message mime type support
+- Publish tagged message to users subscribed to specific tags
