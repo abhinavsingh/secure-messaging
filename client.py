@@ -83,8 +83,10 @@ class Client(object):
 	def send_message(self, uid, message):
 		with open(constants.CLIENT_PUB_PATH % uid, 'rb') as pubfile:
 			pubkey = pubfile.read()
+			# encrypt message using receiver public key
 			enc = self.encrypt_message(message, pubkey)
-			sig = self.generate_signature(message)
+			# sign encrypted message for digital verification
+			sig = self.generate_signature(enc[0])
 			message = (constants.OP_MESSAGE, pubkey, enc[0], sig[0],)
 			self.write(*message)
 
@@ -92,8 +94,10 @@ class Client(object):
 		enc = (enc,)
 		sig = (long(sig),)
 		
-		message = self.decrypt_message(enc)
-		if self.verify_signature(pubkey, sig, message):
+		# verify signature of incoming encrypted message
+		if self.verify_signature(pubkey, sig, enc[0]):
+			# decrypt message
+			message = self.decrypt_message(enc)
 			logger.info('rcvd %s from %s' % (message, pubkey))
 
 	@staticmethod
