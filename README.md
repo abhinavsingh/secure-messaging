@@ -17,11 +17,13 @@ How it works:
 - Clients generate public/private key and send their public key to server upon connection
 - Message is addressed from one public key to another public key
 - Over the wire packet consists of sender public key, digital signature and encrypted message
-- Only destination client can decrypt message and verify digital signature
+- Anyone can verify packets on the wire using digital signatures
+- Only destination client can decrypt message
 
 TODO:
 -----
 
+- Cleanup communication protocol (redis style over ssl) and fix open security loop holes in current draft
 - Methods for public key discovery of social friends and like minded people
 - How to send message to all the devices of same user running with different public/private key?
 - Acknowledgement and offline message persistence

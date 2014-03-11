@@ -1,5 +1,4 @@
 import os
-import sys
 import ssl
 import signal
 import socket
@@ -19,6 +18,9 @@ logger = logging.getLogger(__name__)
 
 CRLF = '\r\n'
 
+CLIENT_OP = 1 # client op imply is a server op too
+SERVER_OP = 2 # some op (packet) types are processed by server only
+
 OP_PUBKEY = 1
 OP_MESSAGE = 2
 
@@ -29,12 +31,25 @@ CLIENT_PUB_PATH = KEYS_PATH + '/clients/%s.pub'
 CLIENT_PRIV_PATH = KEYS_PATH + '/clients/%s.priv'
 
 clients = dict()
-buffers = dict()
+offline_messages = dict()
 
 def handle_signal(sig, frame):
     IOLoop.instance().add_callback(IOLoop.instance().stop)
 
-class ClientProtocol(object):
+class Protocol(object):
+    
+    commands = {
+        OP_PUBKEY:  (SERVER_OP, 3, 'handle_op_pubkey'),
+        OP_MESSAGE: (CLIENT_OP, 5, 'handle_op_message'),
+    }
+    
+    def __init__(self, role):
+        assert role in ['client', 'server']
+        self.role = role
+        self.opcode = None
+        self.buffer = ''
+        self.pubkey = None # public key of connected client to the server
+        self.md5 = None # md5 hash of client public key, used for offline message cache references
     
     def handle_line(self, data):
         self.buffer += data
@@ -43,44 +58,17 @@ class ClientProtocol(object):
         if not self.opcode and len(messages) > 1:
             self.opcode = int(messages[0])
         
-        if self.opcode == OP_MESSAGE and len(messages) == 5:
-            message = messages[1:4]
-            self.handle_op_message(*message)
-            self.buffer = ''
-            self.opcode = None
-        
-        self.read_line()
-    
-    def handle_op_message(self, pubkey, enc, sig):
-        enc = (enc,)
-        sig = (long(sig),)
-        
-        # verify signature of incoming encrypted message
-        if self.verify_signature(pubkey, sig, enc[0]):
-            # decrypt message
-            message = self.decrypt_message(enc)
-            logger.info('rcvd %s from %s' % (message, pubkey))
-
-class ServerProtocol(object):
-
-    def handle_line(self, data):
-        #logger.debug('rcvd %s from client %s' % (data, self.addr))
-        
-        self.buffer += data
-        messages = self.buffer.split(CRLF)
-        
-        if not self.opcode and len(messages) > 1:
-            self.opcode = int(messages[0])
-        
-        if self.opcode == OP_PUBKEY and len(messages) == 3:
-            self.handle_op_pubkey(messages[1])
-            self.buffer = ''
-            self.opcode = None
-        elif self.opcode == OP_MESSAGE and len(messages) == 5:
-            message = messages[1:4]
-            self.handle_op_message(*message)
-            self.buffer = ''
-            self.opcode = None
+        if self.opcode:
+            opmeta = self.commands[self.opcode]
+            if len(messages) == opmeta[1]:
+                message = messages[1:opmeta[1]-1]
+                
+                name = opmeta[2]
+                handler = getattr(self, name)
+                handler(*message)
+                
+                self.buffer = ''
+                self.opcode = None
         
         self.read_line()
     
@@ -89,33 +77,46 @@ class ServerProtocol(object):
         self.md5 = MD5.new(pubkey).hexdigest()
         clients[self.md5] = self.conn
         
-        if self.md5 in buffers:
-            messages = buffers[self.md5]
-            del buffers[self.md5]
+        if self.md5 in offline_messages:
+            messages = offline_messages[self.md5]
+            del offline_messages[self.md5]
             logger.debug('%s offline messages found for %s' % (len(messages), self.md5))
             for message in messages:
                 self.write(self.conn, *message)
     
-    def handle_op_message(self, pubkey, enc, sig):
+    def handle_op_message(self, *args, **kwargs):
+        if self.role == 'client':
+            self.handle_client_op_message(*args, **kwargs)
+        elif self.role == 'server':
+            self.handle_server_op_message(*args, **kwargs)
+    
+    def handle_client_op_message(self, pubkey, enc, sig):
+        enc = (enc,)
+        sig = (long(sig),)
+        if self.verify_signature(pubkey, sig, enc[0]):
+            message = self.decrypt_message(enc)
+            logger.info('rcvd %s from %s' % (message, pubkey))
+    
+    def handle_server_op_message(self, pubkey, enc, sig):
         message = (OP_MESSAGE, self.pubkey, enc, sig,)
         md5 = MD5.new(pubkey).hexdigest()
-        
         if md5 in clients:
             conn = clients[md5]
             self.write(conn, *message)
         else:
-            if md5 not in buffers:
-                buffers[md5] = list()
-            buffers[md5].append(message,)
+            if md5 not in offline_messages:
+                offline_messages[md5] = list()
+            offline_messages[md5].append(message,)
             logger.debug('%s offline, buffered message' % md5)
 
-class Client(ClientProtocol):
+class Client(Protocol):
     '''ssl client implementation.'''
 
-    def __init__(self, uid, port=10001):
+    def __init__(self, uid, port):
+        super(Client, self).__init__('client')
+        
         self.uid = uid
         self.port = port
-        self.opcode = None
         
         self.sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         self.conn = SSLIOStream(self.sock, ssl_options={'ca_certs':SERVER_CRT_PATH, 'cert_reqs':ssl.CERT_REQUIRED})
@@ -125,7 +126,6 @@ class Client(ClientProtocol):
         self.conn.set_close_callback(self.on_close)
         self.pubkey, self.privkey = None, None
         self.init_keys()
-        self.buffer = ''
         self.write(OP_PUBKEY, self.pubkey)
         if self.uid == 2:
             self.send_message(1, 'hello world')
@@ -196,18 +196,13 @@ class Client(ClientProtocol):
         k = RSA.importKey(self.privkey)
         return k.decrypt(enc)
 
-class Handler(ServerProtocol):
+class Handler(Protocol):
     '''client connection handler.'''
 
     def __init__(self, conn, addr):
-        super(Handler, self).__init__()
+        super(Handler, self).__init__('server')
         self.conn = conn
         self.addr = addr
-        
-        self.opcode = None
-        self.buffer = ''
-        self.pubkey = None
-        self.md5 = None
     
     def run(self):
         self.read_line()
@@ -237,7 +232,7 @@ def start_client(opts):
     signal.signal(signal.SIGINT, handle_signal)
     signal.signal(signal.SIGTERM, handle_signal)
     uid = int(opts.uid)
-    _c = Client(uid)
+    _c = Client(uid, opts.port)
     IOLoop.instance().start()
     IOLoop.instance().close()
 
