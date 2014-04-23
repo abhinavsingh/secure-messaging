@@ -11,6 +11,36 @@ Goals:
 - CLI client (ssl)
 - Web (https + wss) client
 
+Usage:
+------
+
+Generate server pub/priv key pair:
+
+```
+$ cd priv/keys/server
+$ ./genkey.sh
+```
+
+Start server:
+
+```
+$ python messaging.py --start server
+```
+
+In another terminal, start client 1:
+
+```
+python messaging.py --start client --uid 1
+```
+
+Go in another terminal and start client 2:
+
+```
+python messaging.py --start client --uid 2
+```
+
+Client 2 will send a message to client 1.
+
 How it works:
 -------------
 

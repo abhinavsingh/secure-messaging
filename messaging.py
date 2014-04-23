@@ -49,7 +49,6 @@ class Protocol(object):
         self.opcode = None
         self.buffer = ''
         self.pubkey = None # public key of connected client to the server
-        self.md5 = None # md5 hash of client public key, used for offline message cache references
     
     def handle_line(self, data):
         self.buffer += data
@@ -74,13 +73,13 @@ class Protocol(object):
     
     def handle_op_pubkey(self, pubkey):
         self.pubkey = pubkey
-        self.md5 = MD5.new(pubkey).hexdigest()
-        clients[self.md5] = self.conn
+        clients[self.pubkey] = self.conn
+        logger.debug('Pubkey %s connected' % self.pubkey)
         
-        if self.md5 in offline_messages:
-            messages = offline_messages[self.md5]
-            del offline_messages[self.md5]
-            logger.debug('%s offline messages found for %s' % (len(messages), self.md5))
+        if self.pubkey in offline_messages:
+            messages = offline_messages[self.pubkey]
+            del offline_messages[self.pubkey]
+            logger.debug('Sending %s offline messages found for pubkey %s' % (len(messages), self.pubkey))
             for message in messages:
                 self.write(self.conn, *message)
     
@@ -99,15 +98,15 @@ class Protocol(object):
     
     def handle_server_op_message(self, pubkey, enc, sig):
         message = (OP_MESSAGE, self.pubkey, enc, sig,)
-        md5 = MD5.new(pubkey).hexdigest()
-        if md5 in clients:
-            conn = clients[md5]
+        if pubkey in clients:
+            conn = clients[pubkey]
             self.write(conn, *message)
+            logger.debug('sent message to pubkey %s' % pubkey)
         else:
-            if md5 not in offline_messages:
-                offline_messages[md5] = list()
-            offline_messages[md5].append(message,)
-            logger.debug('%s offline, buffered message' % md5)
+            if pubkey not in offline_messages:
+                offline_messages[pubkey] = list()
+            offline_messages[pubkey].append(message,)
+            logger.debug('pubkey %s is offline, message cached' % pubkey)
 
 class Client(Protocol):
     '''ssl client implementation.'''
@@ -127,8 +126,10 @@ class Client(Protocol):
         self.pubkey, self.privkey = None, None
         self.init_keys()
         self.write(OP_PUBKEY, self.pubkey)
+        # this is hardcoded currently in absence of proper tests
         if self.uid == 2:
             self.send_message(1, 'hello world')
+            logger.debug('Client %s: Sending message "Hello World" to user with uid 1' % self.uid)
         self.read_line()
     
     def read_line(self):
